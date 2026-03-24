@@ -4,22 +4,21 @@
 #include <string.h>
 
 enum {
-    BUCKET_SIZES_LENGTH = 8
+    MAX_BUCKET_SIZE = 8
 };
 
 size_t bucket_sizes[8] = {509, 1021, 2039, 4093, 8191, 16381, 32749, 65521};
-size_t *size = bucket_sizes;
-size_t *end = bucket_sizes + BUCKET_SIZES_LENGTH;
 
 typedef struct Binding {
-    const char *key;
+    char *key;
     void *val;
     struct Binding *next;
 } Binding;
 
-typedef struct SymTable_T {
-    struct Binding **buckets;
+struct SymTable_T {
+    Binding **buckets;
     int length;
+    int bucket_count_index;
 };
 
 static size_t SymTable_hash(const char *pcKey, size_t uBucketCount)
@@ -36,28 +35,31 @@ static size_t SymTable_hash(const char *pcKey, size_t uBucketCount)
    return uHash % uBucketCount;
 }
 
-static SymTable_T expand(SymTable_T oSymTable, size_t newLength) {
-    SymTable_T oldSym = oSymTable;
+static SymTable_T expand(SymTable_T oSymTable) {
+    size_t oldLength = bucket_sizes[oSymTable->bucket_count_index];
+    size_t newLength;
+    if (oSymTable->bucket_count_index + 1 >= MAX_BUCKET_SIZE) return oSymTable;
+    oSymTable->bucket_count_index++;
+    
+    newLength = bucket_sizes[oSymTable->bucket_count_index];
     Binding **newArray = calloc(newLength, sizeof(Binding *));
-
     if (newArray == NULL) return NULL;
 
     int i;
-    for (i = 0; i < *size; i++) {
+    for (i = 0; i < oldLength; i++) {
+        Binding *nextNew = NULL;
         Binding *currentOld = oSymTable->buckets[i];
-        Binding *currentNew = newArray[i];
-        Binding *prev = NULL;
         while(currentOld != NULL) {
-            currentNew->key = malloc(strlen(currentOld->key) + 1);
-            if (currentNew->key == NULL) return NULL;
-
-            strcpy(currentNew->key, currentOld->key);
-            currentNew->val = currentOld->val;
-            
+            int index = SymTable_hash(currentOld->key, newLength);
+            nextNew = newArray[index];
+            newArray[index] = currentOld;
+            currentOld = currentOld->next;
+            newArray[index]->next = nextNew;
         }
     }
-    free(oSymTable);
-
+    free(oSymTable->buckets);
+    oSymTable->buckets = newArray; 
+    return oSymTable;
 }
 
 SymTable_T SymTable_new(void) {
@@ -65,16 +67,21 @@ SymTable_T SymTable_new(void) {
     SymTable_T table = calloc(1, sizeof(*table));
     if (table == NULL) return NULL;
 
-    table->buckets = calloc(*size, sizeof(Binding *));
-    if (table->buckets == NULL) return NULL;
-
+    table->bucket_count_index = 0;
+    table->buckets = calloc(bucket_sizes[table->bucket_count_index], 
+        sizeof(Binding *));
+    
+    if (table->buckets == NULL) {
+        free(table);
+        return NULL;
+    }
     table->length = 0;
     return table;
 }
 
 void SymTable_free(SymTable_T oSymTable) {
     int i;
-    for (i = 0; i < *size; i++) {
+    for (i = 0; i < bucket_sizes[oSymTable->bucket_count_index]; i++) {
         Binding *current = oSymTable->buckets[i];
         Binding *next;
         while(current != NULL) {
@@ -84,6 +91,7 @@ void SymTable_free(SymTable_T oSymTable) {
             current = next;
         }
     }
+    free(oSymTable->buckets);
     free(oSymTable);
 }
 
@@ -92,7 +100,7 @@ size_t SymTable_getLength(SymTable_T oSymTable) {
 }
 
 int SymTable_contains(SymTable_T oSymTable, const char *pcKey) {
-    size_t index = SymTable_hash(pcKey, *size);
+    size_t index = SymTable_hash(pcKey, bucket_sizes[oSymTable->bucket_count_index]);
 
     Binding *current = oSymTable->buckets[index];
     while (current != NULL) {
@@ -109,20 +117,20 @@ int SymTable_put(SymTable_T oSymTable,
 
     if (SymTable_contains(oSymTable, pcKey) == 1) return 0;
 
-    if(oSymTable->length >= *size) {
-        if (size != end) size++;
-        oSymTable = expand(oSymTable, *size);
+    if(oSymTable->length >= bucket_sizes[oSymTable->bucket_count_index]) {
+        oSymTable = expand(oSymTable);
+        if (oSymTable == NULL) return 0; 
     }
     
-    size_t index = SymTable_hash(pcKey, *size);
-    if (oSymTable->buckets[index] == NULL) oSymTable->length += 1;
+    size_t index = SymTable_hash(pcKey, bucket_sizes[oSymTable->bucket_count_index]);
 
     Binding *newBinding = malloc(sizeof(Binding));
-    if (newBinding = NULL) return 0;
+    if (newBinding == NULL) return 0;
 
     newBinding->key = malloc(strlen(pcKey) + 1);
     if (newBinding->key == NULL) return 0;
 
+    oSymTable->length += 1;
     strcpy(newBinding->key, pcKey);
     newBinding->val = pvValue;
     newBinding->next = oSymTable->buckets[index];
@@ -133,7 +141,7 @@ int SymTable_put(SymTable_T oSymTable,
 void *SymTable_replace(SymTable_T oSymTable,
     const char *pcKey, const void *pvValue) {
 
-    size_t index = SymTable_hash(pcKey, *size);
+    size_t index = SymTable_hash(pcKey, bucket_sizes[oSymTable->bucket_count_index]);
     void *value; 
 
     Binding *current = oSymTable->buckets[index];
@@ -150,7 +158,7 @@ void *SymTable_replace(SymTable_T oSymTable,
 }
 
 void *SymTable_get(SymTable_T oSymTable, const char *pcKey) {
-    size_t index = SymTable_hash(pcKey, *size);
+    size_t index = SymTable_hash(pcKey, bucket_sizes[oSymTable->bucket_count_index]);
 
     Binding *current = oSymTable->buckets[index];
     while (current != NULL) {
@@ -164,7 +172,7 @@ void *SymTable_get(SymTable_T oSymTable, const char *pcKey) {
 }
 
 void *SymTable_remove(SymTable_T oSymTable, const char *pcKey) {
-    size_t index = SymTable_hash(pcKey, *size);
+    size_t index = SymTable_hash(pcKey, bucket_sizes[oSymTable->bucket_count_index]);
     void *value;
     Binding *prev = NULL;
     Binding *current = oSymTable->buckets[index];
@@ -179,6 +187,7 @@ void *SymTable_remove(SymTable_T oSymTable, const char *pcKey) {
             value = current->val;
             free(current->key);
             free(current);
+            oSymTable->length--;
             return value;
         }
         prev = current;
@@ -193,10 +202,10 @@ void SymTable_map(SymTable_T oSymTable,
     const void *pvExtra) {
 
     int i;
-    for (i = 0; i < *size; i++) {
+    for (i = 0; i < bucket_sizes[oSymTable->bucket_count_index]; i++) {
         Binding *current = oSymTable->buckets[i];
         while(current != NULL) {
-            pfApply(current->key, current->val, pvExtra);
+            pfApply(current->key, current->val, (void *)pvExtra);
             current = current->next;
         }
     }
