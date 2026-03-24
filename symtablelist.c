@@ -1,5 +1,7 @@
 #include "symtable.h"
+#include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <assert.h>
 #include <string.h>
 
@@ -9,9 +11,9 @@ typedef struct Node {
     struct Node *next;
 } Node;
 
-typedef struct SymTable_T {
+struct SymTable_T {
     struct Node *first;
-    int length;
+    size_t length;
 };
 
 SymTable_T SymTable_new(void) {
@@ -57,13 +59,13 @@ int SymTable_put(SymTable_T oSymTable,
     if (new == NULL) {
         return 0; 
     }
-    new->key = (const char*)malloc(strlen(pcKey) + 1);
+    new->key = (const char*) malloc(strlen(pcKey) + 1);
     if (new->key == NULL) {
         free(new);
         return 0;
     }
     strcpy((char*)new->key, pcKey);
-    new->value = pvValue;
+    new->value = (char *) pvValue;
     new->next = prev;
     oSymTable->first = new;
     oSymTable->length += 1;
@@ -78,7 +80,7 @@ void *SymTable_replace(SymTable_T oSymTable,
     while (current != NULL) {
         if (strcmp(current->key, pcKey) == 0) {
             oldValue = current->value;
-            current->value = pvValue;
+            current->value = (char *) pvValue;
             return oldValue;
         } else {
             current = current->next;
@@ -92,7 +94,7 @@ void *SymTable_get(SymTable_T oSymTable, const char *pcKey) {
     Node *current = oSymTable->first;
     while (current != NULL) {
         if (strcmp(current->key, pcKey) == 0) {
-            return current->key;
+            return (char *)current->value;
         }
         current = current->next;
     }
@@ -112,8 +114,9 @@ void *SymTable_remove(SymTable_T oSymTable, const char *pcKey) {
                 prev->next = current->next;
             }
             val = current->value;
-            free(current->key);
+            free((char *)current->key);
             free(current);
+            oSymTable->length -= 1;
             return val;
         }
         prev = current;
@@ -128,7 +131,7 @@ void SymTable_map(SymTable_T oSymTable,
         
     Node *current = oSymTable->first;
     while (current != NULL) {
-        (*pfApply)(current->key, current->value, pvExtra);
+        (*pfApply)(current->key, current->value, (void *) pvExtra);
         current = current->next;
     }
 }
