@@ -38,9 +38,10 @@ static size_t SymTable_hash(const char *pcKey, size_t uBucketCount)
 }
 
 static SymTable_T expand(SymTable_T oSymTable) {
+    if (oSymTable->bucket_count_index + 1 >= MAX_BUCKET_SIZE) return oSymTable;
+    
     size_t oldLength = bucket_sizes[oSymTable->bucket_count_index];
     size_t newLength;
-    if (oSymTable->bucket_count_index + 1 >= MAX_BUCKET_SIZE) return oSymTable;
     oSymTable->bucket_count_index++;
     
     newLength = bucket_sizes[oSymTable->bucket_count_index];
@@ -115,15 +116,22 @@ int SymTable_contains(SymTable_T oSymTable, const char *pcKey) {
 
 int SymTable_put(SymTable_T oSymTable,
     const char *pcKey, const void *pvValue) {
+    
+    size_t index = SymTable_hash(pcKey, bucket_sizes[oSymTable->bucket_count_index]);
 
-    if (SymTable_contains(oSymTable, pcKey) == 1) return 0;
+    Binding *current = oSymTable->buckets[index];
+
+    while(current != NULL) {
+        if (strcmp(current->key, pcKey) == 0) return 0;
+        current = current->next;
+    }
 
     if((size_t)oSymTable->length >= bucket_sizes[oSymTable->bucket_count_index]) {
         oSymTable = expand(oSymTable);
         if (oSymTable == NULL) return 0; 
     }
-    
-    size_t index = SymTable_hash(pcKey, bucket_sizes[oSymTable->bucket_count_index]);
+
+    index = SymTable_hash(pcKey, bucket_sizes[oSymTable->bucket_count_index]);
 
     Binding *newBinding = malloc(sizeof(Binding));
     if (newBinding == NULL) return 0;
